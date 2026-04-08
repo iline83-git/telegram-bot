@@ -92,4 +92,12 @@ app = ApplicationBuilder().token("8383810656:AAFkeiHcpMPAuKN2d7zHY0iub5InEgOCjIc
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT, handle))
 
-app.run_polling()
+import asyncio
+
+async def main():
+    print("Бот запущен")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+asyncio.run(main())
