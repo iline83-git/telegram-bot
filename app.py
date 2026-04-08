@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # Загрузка токена из .env
 load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("8383810656:AAFkeiHcpMPAuKN2d7zHY0iub5InEgOCjIc")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # для webhook на сервере, если нужен
 
 # Хранение данных пользователей
