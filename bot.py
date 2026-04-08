@@ -1,160 +1,93 @@
-import os
-import sqlite3
-from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup
+import logging
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# токен из Bothost
-TOKEN = os.getenv("BOT_TOKEN")
+logging.basicConfig(level=logging.INFO)
 
-# база данных (локально — работает на Bothost)
-conn = sqlite3.connect("habit.db", check_same_thread=False)
-cursor = conn.cursor()
+# Храним ответы пользователя
+user_data = {}
 
-# создаём таблицы
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS habits (
-    chat_id INTEGER,
-    habit TEXT,
-    value INTEGER
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS history (
-    chat_id INTEGER,
-    date TEXT,
-    score INTEGER,
-    level TEXT
-)
-""")
-
-conn.commit()
-
-# привычки
-habits_list = [
-    ("💧 Вода утром", 10),
-    ("🌬 Глубокое дыхание", 10),
-    ("🧘 Лоуэн", 10),
-    ("✍️ Утренние страницы", 20),
-    ("🏋️ Приседания", 20),
-    ("📖 Книга", 20),
-    ("🚫 Не есть после 21", 20),
-    ("🌬 Стрельникова", 10),
-    ("🧘 Чакровое дыхание", 10)
+questions = [
+    "Вода утром? (+/-)",
+    "Глубокое дыхание 5 мин? (+/-)",
+    "Упражнения Лоуэна? (+/-)",
+    "Утренние страницы? (+/-)",
+    "30 приседаний? (+/-)",
+    "1 глава книги с рефлексией? (+/-)",
+    "Не ел после 21:00? (+/-)",
+    "Стрельникова? (+/-)",
+    "Чакровое дыхание? (+/-)"
 ]
 
-main_menu = ReplyKeyboardMarkup([
-    ["📋 Привычки", "📊 Результат"]
-], resize_keyboard=True)
-
-def get_keyboard():
-    keyboard = []
-    for habit, _ in habits_list:
-        keyboard.append([habit + " ✅", habit + " ❌"])
-    keyboard.append(["🔙 Назад"])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-# сохранить привычку
-def save_habit(chat_id, habit, value):
-    cursor.execute("DELETE FROM habits WHERE chat_id=? AND habit=?", (chat_id, habit))
-    cursor.execute("INSERT INTO habits VALUES (?, ?, ?)", (chat_id, habit, value))
-    conn.commit()
-
-# получить привычки
-def get_habits(chat_id):
-    cursor.execute("SELECT habit, value FROM habits WHERE chat_id=?", (chat_id,))
-    return dict(cursor.fetchall())
-
-# сохранить историю
-def save_history(chat_id, score, level):
-    date = datetime.now().strftime("%Y-%m-%d")
-    cursor.execute("INSERT INTO history VALUES (?, ?, ?, ?)", (chat_id, date, score, level))
-    conn.commit()
-
-# получить историю
-def get_history(chat_id):
-    cursor.execute("""
-        SELECT date, score, level
-        FROM history
-        WHERE chat_id=?
-        ORDER BY date DESC
-        LIMIT 7
-    """, (chat_id,))
-    return cursor.fetchall()
+scores = [10,10,10,20,20,20,20,10,10]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 Главное меню", reply_markup=main_menu)
+    user_data[update.effective_chat.id] = {
+        "step": 0,
+        "answers": []
+    }
+    await update.message.reply_text("Начинаем чек-ап 👇")
+    await update.message.reply_text(questions[0])
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    text = update.message.text
+    text = update.message.text.strip()
 
-    if text == "📋 Привычки":
-        await update.message.reply_text("Выбери привычку:", reply_markup=get_keyboard())
+    if chat_id not in user_data:
+        await update.message.reply_text("Напиши /start")
         return
 
-    if text == "🔙 Назад":
-        await update.message.reply_text("Главное меню", reply_markup=main_menu)
-        return
+    data = user_data[chat_id]
 
-    if text == "📊 Результат":
-        habits = get_habits(chat_id)
-        total, level = calculate(habits)
+    # сохраняем ответ
+    data["answers"].append(text)
 
-        save_history(chat_id, total, level)
+    data["step"] += 1
 
-        history = get_history(chat_id)
-        history_text = "\n".join([f"{d} — {s} ({l})" for d, s, l in history])
+    if data["step"] < len(questions):
+        await update.message.reply_text(questions[data["step"]])
+    else:
+        result = calculate(data["answers"])
+        await update.message.reply_text(result)
+        del user_data[chat_id]
 
-        await update.message.reply_text(
-            f"📊 Баллы: {total}\n{level}\n\n📅 История:\n{history_text if history_text else 'Нет данных'}"
-        )
-        return
-
-    # обработка привычек
-    for habit, _ in habits_list:
-        if habit in text:
-            if "✅" in text:
-                save_habit(chat_id, habit, 1)
-            elif "❌" in text:
-                save_habit(chat_id, habit, 0)
-
-            await update.message.reply_text(f"{habit} сохранено ✅")
-            return
-
-def calculate(habits):
+def calculate(answers):
     total = 0
 
-    for habit, score in habits_list:
-        if habits.get(habit) == 1:
-            total += score
+    # плюсы
+    for i, ans in enumerate(answers):
+        if ans == "+":
+            total += scores[i]
 
     penalties = 0
-    if habits.get("🚫 Не есть после 21") == 0:
+
+    # штрафы
+    if answers[6] == "-":  # ел после 21
         penalties += 30
-    if habits.get("🏋️ Приседания") == 0:
+
+    if answers[4] == "-":  # приседания
         penalties += 30
-    if habits.get("📖 Книга") == 0:
+
+    if answers[5] == "-":  # книга
         penalties += 30
 
     total -= penalties
 
+    # уровень
     if total >= 100:
         level = "🔥 Идеально"
     elif total >= 70:
         level = "💪 Сильный день"
     elif total >= 40:
-        level = "👍 Средний день"
+        level = "👍 Средний"
     elif total >= 0:
-        level = "⚠️ Слабый день"
+        level = "⚠️ Слабый"
     else:
         level = "🚨 Срыв"
 
-    return total, level
+    return f"Баллы: {total}\nУровень: {level}"
 
-# запуск
-app = ApplicationBuilder().token(TOKEN).build()
+app = ApplicationBuilder().token("8383810656:AAFkeiHcpMPAuKN2d7zHY0iub5InEgOCjIc").build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT, handle))
