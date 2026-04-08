@@ -1,6 +1,10 @@
+import os
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackContext
+
+# Токен бота берём из переменной окружения (Bothost)
+TOKEN = os.getenv("BOT_TOKEN")
 
 # Хранение данных пользователей
 user_data = {}
@@ -131,8 +135,22 @@ def get_progress(data):
     progress_str = f"{bar} {total}/{max_score} баллов"
     return f"📊 {level}", progress_str, data["streak"]
 
-# Создание и запуск бота
-app = ApplicationBuilder().token("8383810656:AAFkeiHcpMPAuKN2d7zHY0iub5InEgOCjIc").build()
+# --- Создание приложения и webhook для Bothost ---
+app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT, handle))
-app.run_polling()
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+# Bothost требует webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # ссылка вида https://your-domain.com/bot
+
+# Запуск webhook
+if __name__ == "__main__":
+    import asyncio
+
+    async def main():
+        await app.bot.set_webhook(WEBHOOK_URL)
+        print(f"Webhook установлен: {WEBHOOK_URL}")
+        # Bothost обычно держит процесс живым, просто "ждем"
+        await asyncio.Event().wait()
+
+    asyncio.run(main())
