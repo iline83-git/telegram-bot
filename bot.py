@@ -1,13 +1,14 @@
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = os.getenv("8383810656:AAFkeiHcpMPAuKN2d7zHY0iub5InEgOCjIc")
+# токен из Bothost
+TOKEN = os.getenv("BOT_TOKEN")
 
-# 📦 База данных
-conn = sqlite3.connect("habit_bot.db", check_same_thread=False)
+# база данных (локально — работает на Bothost)
+conn = sqlite3.connect("habit.db", check_same_thread=False)
 cursor = conn.cursor()
 
 # создаём таблицы
@@ -73,7 +74,13 @@ def save_history(chat_id, score, level):
 
 # получить историю
 def get_history(chat_id):
-    cursor.execute("SELECT date, score, level FROM history WHERE chat_id=? ORDER BY date DESC LIMIT 7", (chat_id,))
+    cursor.execute("""
+        SELECT date, score, level
+        FROM history
+        WHERE chat_id=?
+        ORDER BY date DESC
+        LIMIT 7
+    """, (chat_id,))
     return cursor.fetchall()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,11 +91,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if text == "📋 Привычки":
-        await update.message.reply_text("Выбери:", reply_markup=get_keyboard())
+        await update.message.reply_text("Выбери привычку:", reply_markup=get_keyboard())
         return
 
     if text == "🔙 Назад":
-        await update.message.reply_text("Меню", reply_markup=main_menu)
+        await update.message.reply_text("Главное меню", reply_markup=main_menu)
         return
 
     if text == "📊 Результат":
@@ -98,9 +105,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_history(chat_id, total, level)
 
         history = get_history(chat_id)
-        history_str = "\n".join([f"{d} — {s} ({l})" for d, s, l in history])
+        history_text = "\n".join([f"{d} — {s} ({l})" for d, s, l in history])
 
-        await update.message.reply_text(f"📊 {total} баллов\n{level}\n\n📅 История:\n{history_str}")
+        await update.message.reply_text(
+            f"📊 Баллы: {total}\n{level}\n\n📅 История:\n{history_text if history_text else 'Нет данных'}"
+        )
         return
 
     # обработка привычек
@@ -111,7 +120,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif "❌" in text:
                 save_habit(chat_id, habit, 0)
 
-            await update.message.reply_text(f"{habit} сохранено")
+            await update.message.reply_text(f"{habit} сохранено ✅")
             return
 
 def calculate(habits):
@@ -134,16 +143,17 @@ def calculate(habits):
     if total >= 100:
         level = "🔥 Идеально"
     elif total >= 70:
-        level = "💪 Сильный"
+        level = "💪 Сильный день"
     elif total >= 40:
-        level = "👍 Средний"
+        level = "👍 Средний день"
     elif total >= 0:
-        level = "⚠️ Слабый"
+        level = "⚠️ Слабый день"
     else:
         level = "🚨 Срыв"
 
     return total, level
 
+# запуск
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
